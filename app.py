@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 
 st.set_page_config(page_title="Curva ABC Mercado Livre", layout="wide")
 
 st.title("📊 Analisador Curva ABC - Mercado Livre")
+
 
 # -------------------------
 # Upload arquivos
@@ -26,51 +26,32 @@ def load_data(file):
 
     df = pd.read_excel(file, header=5)
 
-    df.columns = df.columns.str.lower().str.strip()
+    df = df[[
+        "ID do anúncio",
+        "Anúncio",
+        "Unidades vendidas",
+        "Vendas brutas (BRL)"
+    ]]
 
-    df = df.rename(columns={
-        "anúncio":"anuncio",
-        "anuncio":"anuncio",
-        "quantidade de vendas":"vendas",
-        "unidades vendidas":"vendas",
-        "vendas brutas (brl)":"faturamento"
-    })
+    df.columns = [
+        "id",
+        "anuncio",
+        "unidades",
+        "faturamento"
+    ]
+
+    # corrigir formatação brasileira
+    df["faturamento"] = (
+        df["faturamento"]
+        .astype(str)
+        .str.replace(".", "", regex=False)
+        .str.replace(",", ".", regex=False)
+        .astype(float)
+    )
+
+    df["unidades"] = pd.to_numeric(df["unidades"], errors="coerce")
 
     return df
-
-
-# -------------------------
-# Detectar colunas automaticamente
-# -------------------------
-
-def detectar_colunas(df):
-
-    col_anuncio = None
-    col_vendas = None
-    col_faturamento = None
-    col_preco = None
-    col_data = None
-
-    for col in df.columns:
-
-        nome = col.lower()
-
-        if "anuncio" in nome:
-            col_anuncio = col
-
-        if "vend" in nome:
-            col_vendas = col
-
-        if "faturamento" in nome or "brutas" in nome:
-            col_faturamento = col
-
-        if "preco" in nome or "preço" in nome:
-            col_preco = col
-
-        if "data" in nome:
-            col_data = col
-
-    return col_anuncio, col_vendas, col_faturamento, col_preco, col_data
 
 
 # -------------------------
@@ -79,30 +60,14 @@ def detectar_colunas(df):
 
 def calcular_curva(df):
 
-    anuncio, vendas, faturamento, preco, data = detectar_colunas(df)
+    resumo = df.groupby(["id","anuncio"]).agg({
+        "faturamento":"sum",
+        "unidades":"sum"
+    }).reset_index()
 
-    if anuncio is None or faturamento is None:
+    resumo = resumo.sort_values("faturamento", ascending=False)
 
-        st.error("Não foi possível identificar as colunas necessárias.")
-        st.write("Colunas encontradas:")
-        st.write(df.columns)
-        st.stop()
-
-    agg_dict = {
-        faturamento:"sum"
-    }
-
-    if vendas:
-        agg_dict[vendas] = "sum"
-
-    if preco:
-        agg_dict[preco] = "mean"
-
-    resumo = df.groupby(anuncio).agg(agg_dict).reset_index()
-
-    resumo = resumo.sort_values(faturamento, ascending=False)
-
-    resumo["perc"] = resumo[faturamento] / resumo[faturamento].sum()
+    resumo["perc"] = resumo["faturamento"] / resumo["faturamento"].sum()
 
     resumo["perc_acum"] = resumo["perc"].cumsum()
 
@@ -110,20 +75,12 @@ def calcular_curva(df):
 
         if x <= 0.80:
             return "A"
-
         elif x <= 0.95:
             return "B"
-
         else:
             return "C"
 
     resumo["curva"] = resumo["perc_acum"].apply(curva)
-
-    resumo = resumo.rename(columns={
-        faturamento:"faturamento",
-        vendas:"vendas",
-        preco:"preco"
-    })
 
     return resumo
 
@@ -136,26 +93,12 @@ def comparar_curvas(atual, anterior):
 
     merge = atual.merge(
         anterior,
-        on="anuncio",
+        on="id",
         how="left",
         suffixes=("_atual","_anterior")
     )
 
-    if "curva_anterior" in merge.columns:
-
-        merge["mudanca"] = merge["curva_anterior"] + " → " + merge["curva_atual"]
-
-    else:
-
-        merge["mudanca"] = "Novo"
-
-    if "preco_atual" in merge.columns and "preco_anterior" in merge.columns:
-
-        merge["analise_preco"] = np.where(
-            merge["preco_atual"] < merge["preco_anterior"],
-            "Preço caiu",
-            "Preço subiu"
-        )
+    merge["mudanca"] = merge["curva_anterior"].fillna("Novo") + " → " + merge["curva_atual"]
 
     return merge
 
@@ -216,15 +159,17 @@ if file_3m and file_prev and file_current:
 
         st.plotly_chart(fig, use_container_width=True)
 
+
 # -------------------------
 # CURVA ABC
 # -------------------------
 
     if menu == "Curva ABC":
 
-        st.header("📈 Curva ABC")
+        st.header("📈 Curva ABC Atual")
 
         st.dataframe(curva_current)
+
 
 # -------------------------
 # MUDANÇAS
@@ -239,6 +184,7 @@ if file_3m and file_prev and file_current:
         ]
 
         st.dataframe(mudancas)
+
 
 # -------------------------
 # PRE ACORDO
