@@ -3,24 +3,25 @@ import pandas as pd
 import plotly.express as px
 
 st.set_page_config(
-    page_title="Curva ABC Mercado Livre",
+    page_title="Curva ABC Inteligente",
     layout="wide"
 )
 
 st.title("📊 Curva ABC Inteligente - Mercado Livre")
 
-# =========================
+# ========================
 # Upload
-# =========================
+# ========================
 
 st.sidebar.header("Upload das planilhas")
 
 file_prev = st.sidebar.file_uploader("Mês anterior", type=["xlsx"])
 file_current = st.sidebar.file_uploader("Mês atual", type=["xlsx"])
 
-# =========================
+
+# ========================
 # LOAD DATA
-# =========================
+# ========================
 
 @st.cache_data
 def load_data(file):
@@ -51,23 +52,23 @@ def load_data(file):
         .astype(float)
     )
 
-    df["unidades"] = pd.to_numeric(df["unidades"], errors="coerce")
+    df["unidades"] = pd.to_numeric(df["unidades"], errors="coerce").fillna(0).astype(int)
 
     return df
 
 
-# =========================
+# ========================
 # CURVA ABC
-# =========================
+# ========================
 
 @st.cache_data
 def calcular_curva(df):
 
     resumo = (
-        df.groupby(["id", "anuncio"])
+        df.groupby(["id","anuncio"])
         .agg(
-            faturamento=("faturamento", "sum"),
-            unidades=("unidades", "sum")
+            faturamento=("faturamento","sum"),
+            unidades=("unidades","sum")
         )
         .reset_index()
     )
@@ -89,9 +90,9 @@ def calcular_curva(df):
     return resumo
 
 
-# =========================
+# ========================
 # COMPARAÇÃO
-# =========================
+# ========================
 
 def comparar(atual, anterior):
 
@@ -107,30 +108,27 @@ def comparar(atual, anterior):
     df["curva_anterior"] = df["curva_anterior"].astype(str).replace("nan","Novo")
     df["curva_atual"] = df["curva_atual"].astype(str)
 
+    # Movimento
+
     def movimento(row):
 
-        curva_atual = row["curva_atual"]
-        curva_anterior = row["curva_anterior"]
-
-        if curva_anterior == "Novo":
+        if row["curva_anterior"] == "Novo":
             return "🆕 Novo"
 
-        valor_atual = ordem.get(curva_atual, 99)
-        valor_anterior = ordem.get(curva_anterior, 99)
+        atual = ordem.get(row["curva_atual"],99)
+        anterior = ordem.get(row["curva_anterior"],99)
 
-        if valor_atual < valor_anterior:
+        if atual < anterior:
             return "📈 Subiu"
 
-        if valor_atual > valor_anterior:
+        if atual > anterior:
             return "📉 Caiu"
 
         return "➡️ Igual"
 
     df["movimento"] = df.apply(movimento, axis=1)
 
-    # =========================
-    # VARIAÇÕES
-    # =========================
+    # Variações
 
     df["var_faturamento"] = df["faturamento_atual"] - df["faturamento_anterior"]
 
@@ -142,15 +140,30 @@ def comparar(atual, anterior):
     df["var_unidades"] = df["unidades_atual"] - df["unidades_anterior"]
 
     df["var_preco"] = df["preco_medio_atual"] - df["preco_medio_anterior"]
-    df["unidades_atual"] = df["unidades_atual"].fillna(0).astype(int)
-    df["unidades_anterior"] = df["unidades_anterior"].fillna(0).astype(int)
+
+    # ALERTA INTELIGENTE
+
+    def alerta(row):
+
+        if row["movimento"] == "📉 Caiu" and row["var_preco"] > 0:
+            return "⚠️ Preço subiu e perdeu competitividade"
+
+        if row["movimento"] == "📉 Caiu" and row["var_unidades"] < 0:
+            return "📉 Perda de demanda"
+
+        if row["movimento"] == "📈 Subiu":
+            return "🚀 Ganhando relevância"
+
+        return ""
+
+    df["alerta"] = df.apply(alerta, axis=1)
 
     return df
 
 
-# =========================
+# ========================
 # EXECUÇÃO
-# =========================
+# ========================
 
 if file_prev and file_current:
 
@@ -162,48 +175,36 @@ if file_prev and file_current:
 
     comparacao = comparar(curva_current, curva_prev)
 
-# =========================
-# TABS
-# =========================
 
-    tab1, tab2, tab3 = st.tabs([
+# ========================
+# TABS
+# ========================
+
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Dashboard",
         "📈 Curva ABC",
-        "🔍 Diagnóstico"
+        "🔍 Diagnóstico",
+        "🚀 Oportunidades"
     ])
 
-# =========================
+
+# ========================
 # DASHBOARD
-# =========================
+# ========================
 
     with tab1:
 
         fat_atual = curva_current["faturamento"].sum()
         fat_anterior = curva_prev["faturamento"].sum()
 
-        crescimento = ((fat_atual - fat_anterior) / fat_anterior) * 100
+        crescimento = ((fat_atual-fat_anterior)/fat_anterior)*100
 
         c1,c2,c3,c4 = st.columns(4)
 
-        c1.metric(
-            "Faturamento Atual",
-            f"R$ {fat_atual:,.2f}"
-        )
-
-        c2.metric(
-            "Faturamento Anterior",
-            f"R$ {fat_anterior:,.2f}"
-        )
-
-        c3.metric(
-            "Crescimento",
-            f"{crescimento:.2f}%"
-        )
-
-        c4.metric(
-            "Anúncios ativos",
-            len(curva_current)
-        )
+        c1.metric("Faturamento Atual", f"R$ {fat_atual:,.2f}")
+        c2.metric("Faturamento Anterior", f"R$ {fat_anterior:,.2f}")
+        c3.metric("Crescimento", f"{crescimento:.2f}%")
+        c4.metric("Anúncios ativos", len(curva_current))
 
         st.divider()
 
@@ -218,13 +219,12 @@ if file_prev and file_current:
 
         st.plotly_chart(fig, use_container_width=True)
 
-# =========================
+
+# ========================
 # CURVA ABC
-# =========================
+# ========================
 
     with tab2:
-
-        st.subheader("Curva ABC Atual")
 
         filtro_curva = st.multiselect(
             "Filtrar curva",
@@ -246,33 +246,22 @@ if file_prev and file_current:
             use_container_width=True
         )
 
-# =========================
-# DIAGNÓSTICO INTELIGENTE
-# =========================
+
+# ========================
+# DIAGNÓSTICO
+# ========================
 
     with tab3:
 
-        st.subheader("Diagnóstico de Performance")
+        st.subheader("Produtos com queda relevante")
 
-        queda_min = st.slider(
-            "Queda mínima de faturamento (%)",
-            0,100,20
-        )
+        queda = st.slider("Queda mínima (%)",0,100,20)
 
         df_diag = comparacao[
-            comparacao["var_faturamento_perc"] < -(queda_min/100)
+            comparacao["var_faturamento_perc"] < -(queda/100)
         ]
 
-        movimento = st.multiselect(
-            "Movimento",
-            df_diag["movimento"].unique(),
-            default=df_diag["movimento"].unique()
-        )
-
-        df_diag = df_diag[df_diag["movimento"].isin(movimento)]
-
         st.dataframe(
-
             df_diag[
                 [
                     "id",
@@ -280,6 +269,7 @@ if file_prev and file_current:
                     "curva_anterior",
                     "curva_atual",
                     "movimento",
+                    "alerta",
                     "faturamento_anterior",
                     "faturamento_atual",
                     "var_faturamento_perc",
@@ -301,6 +291,34 @@ if file_prev and file_current:
             use_container_width=True
         )
 
+
+# ========================
+# OPORTUNIDADES
+# ========================
+
+    with tab4:
+
+        st.subheader("Produtos próximos da Curva A")
+
+        candidatos = curva_current[
+            (curva_current["curva"]=="B") &
+            (curva_current["perc_acum"] < 0.85)
+        ]
+
+        st.dataframe(
+
+            candidatos
+            .sort_values("faturamento", ascending=False)
+            .style.format({
+
+                "faturamento":"R$ {:,.2f}",
+                "preco_medio":"R$ {:,.2f}"
+
+            }),
+
+            use_container_width=True
+        )
+
 else:
 
-    st.info("⬅️ Faça upload das planilhas para iniciar análise")
+    st.info("⬅️ Faça upload das duas planilhas")
