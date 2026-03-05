@@ -5,16 +5,22 @@ import plotly.express as px
 
 st.set_page_config(
     page_title="BI Mercado Livre",
+    page_icon="📊",
     layout="wide"
 )
 
-st.title("📊 BI Comercial - Mercado Livre")
+# -------------------------------------------------
+# HEADER
+# -------------------------------------------------
 
-# ---------------------------------------
-# Upload
-# ---------------------------------------
+st.title("📊 BI Comercial Mercado Livre")
+st.caption("Análise avançada de Curva ABC e performance de anúncios")
 
-st.sidebar.header("Upload de Dados")
+# -------------------------------------------------
+# SIDEBAR
+# -------------------------------------------------
+
+st.sidebar.title("📂 Upload de dados")
 
 file_prev = st.sidebar.file_uploader(
     "Mês anterior",
@@ -26,20 +32,25 @@ file_current = st.sidebar.file_uploader(
     type=["xlsx"]
 )
 
-# ---------------------------------------
-# Função leitura
-# ---------------------------------------
+st.sidebar.markdown("---")
+st.sidebar.info("Suba os relatórios exportados do Mercado Livre")
+
+# -------------------------------------------------
+# FUNÇÃO CARREGAR DADOS
+# -------------------------------------------------
 
 def load_data(file):
 
     df = pd.read_excel(file)
 
-    df = df[[
-        "ID do anúncio",
-        "Anúncio",
-        "Unidades vendidas",
-        "Vendas Brutas (BRL)"
-    ]]
+    df = df[
+        [
+            "ID do anúncio",
+            "Anúncio",
+            "Unidades vendidas",
+            "Vendas Brutas (BRL)"
+        ]
+    ]
 
     df["Vendas Brutas (BRL)"] = (
         df["Vendas Brutas (BRL)"]
@@ -51,9 +62,9 @@ def load_data(file):
 
     return df
 
-# ---------------------------------------
-# Curva ABC
-# ---------------------------------------
+# -------------------------------------------------
+# CURVA ABC
+# -------------------------------------------------
 
 def curva_abc(df):
 
@@ -94,9 +105,9 @@ def curva_abc(df):
 
     return resumo
 
-# ---------------------------------------
-# Comparação
-# ---------------------------------------
+# -------------------------------------------------
+# COMPARAÇÃO
+# -------------------------------------------------
 
 def comparar(atual, anterior):
 
@@ -128,9 +139,9 @@ def comparar(atual, anterior):
 
     return df
 
-# ---------------------------------------
-# Execução
-# ---------------------------------------
+# -------------------------------------------------
+# EXECUÇÃO
+# -------------------------------------------------
 
 if file_prev and file_current:
 
@@ -142,33 +153,33 @@ if file_prev and file_current:
 
     comparacao = comparar(curva_current, curva_prev)
 
-    # ---------------------------------------
-    # Abas
-    # ---------------------------------------
+    # -------------------------------------------------
+    # TABS
+    # -------------------------------------------------
 
     tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs([
 
-        "Dashboard",
-        "Curva ABC",
-        "Mudanças",
-        "Oportunidades",
-        "Pré-Acordo",
-        "Ranking"
+        "📊 Dashboard",
+        "📈 Curva ABC",
+        "🔄 Mudanças",
+        "🧠 Inteligência",
+        "🔥 Pré-Acordo",
+        "🏆 Rankings"
 
     ])
 
-# ---------------------------------------
+# -------------------------------------------------
 # DASHBOARD
-# ---------------------------------------
+# -------------------------------------------------
 
     with tab1:
+
+        st.subheader("Resumo Comercial")
 
         fat_atual = df_current["Vendas Brutas (BRL)"].sum()
         fat_anterior = df_prev["Vendas Brutas (BRL)"].sum()
 
-        crescimento = (
-            (fat_atual-fat_anterior)/fat_anterior
-        )*100
+        crescimento = ((fat_atual-fat_anterior)/fat_anterior)*100
 
         unidades = df_current["Unidades vendidas"].sum()
 
@@ -180,39 +191,37 @@ if file_prev and file_current:
 
         c1.metric("Faturamento Atual",f"R$ {fat_atual:,.0f}")
         c2.metric("Faturamento Anterior",f"R$ {fat_anterior:,.0f}")
-        c3.metric("Crescimento",f"{crescimento:.2f}%")
+        c3.metric("Crescimento",f"{crescimento:.1f}%")
         c4.metric("Unidades Vendidas",f"{unidades:,.0f}")
-        c5.metric("Anúncios Ativos",anuncios)
+        c5.metric("Ticket Médio",f"R$ {ticket:,.2f}")
 
-        curva_valor = curva_current.groupby(
-            "curva"
-        )["Vendas Brutas (BRL)"].sum().reset_index()
+        st.markdown("---")
 
-        fig = px.pie(
-            curva_valor,
-            names="curva",
-            values="Vendas Brutas (BRL)",
-            title="Participação Curva ABC"
+        fig = px.bar(
+            curva_current.head(20),
+            x="Anúncio",
+            y="Vendas Brutas (BRL)",
+            title="Top 20 Faturamento"
         )
 
         st.plotly_chart(fig,use_container_width=True)
 
-# ---------------------------------------
+# -------------------------------------------------
 # CURVA ABC
-# ---------------------------------------
+# -------------------------------------------------
 
     with tab2:
 
-        st.subheader("Curva ABC")
+        st.subheader("Tabela Curva ABC")
 
         st.dataframe(
             curva_current,
             use_container_width=True
         )
 
-# ---------------------------------------
+# -------------------------------------------------
 # MUDANÇAS
-# ---------------------------------------
+# -------------------------------------------------
 
     with tab3:
 
@@ -223,15 +232,18 @@ if file_prev and file_current:
             comparacao["curva_anterior"]
         ]
 
-        st.dataframe(mudancas)
+        st.dataframe(
+            mudancas,
+            use_container_width=True
+        )
 
-# ---------------------------------------
-# OPORTUNIDADES
-# ---------------------------------------
+# -------------------------------------------------
+# INTELIGÊNCIA
+# -------------------------------------------------
 
     with tab4:
 
-        st.subheader("Radar de Oportunidades")
+        st.subheader("Radar Comercial")
 
         oportunidade = comparacao[
             (comparacao["variacao_preco"] < 0) &
@@ -242,13 +254,13 @@ if file_prev and file_current:
 
         st.dataframe(oportunidade)
 
-# ---------------------------------------
+# -------------------------------------------------
 # PRE ACORDO
-# ---------------------------------------
+# -------------------------------------------------
 
     with tab5:
 
-        st.subheader("Produtos para Pré-Acordo")
+        st.subheader("Produtos essenciais para campanha")
 
         curvaA = curva_current[
             curva_current["curva"]=="A"
@@ -261,13 +273,13 @@ if file_prev and file_current:
 
         st.dataframe(curvaA)
 
-# ---------------------------------------
-# RANKING
-# ---------------------------------------
+# -------------------------------------------------
+# RANKINGS
+# -------------------------------------------------
 
     with tab6:
 
-        st.subheader("Top Faturamento")
+        st.subheader("Ranking faturamento")
 
         top = curva_current.sort_values(
             "Vendas Brutas (BRL)",
@@ -284,4 +296,4 @@ if file_prev and file_current:
 
 else:
 
-    st.info("Faça upload das planilhas para iniciar análise")
+    st.info("⬅️ Faça upload das duas planilhas para iniciar")
