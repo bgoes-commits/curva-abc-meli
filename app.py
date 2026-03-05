@@ -10,7 +10,7 @@ st.set_page_config(
 st.title("📊 Curva ABC Inteligente - Mercado Livre")
 
 # =========================
-# Upload
+# UPLOAD
 # =========================
 
 st.sidebar.header("Upload das planilhas")
@@ -43,15 +43,17 @@ def load_data(file):
         "faturamento"
     ]
 
+    # limpar faturamento
     df["faturamento"] = (
         df["faturamento"]
         .astype(str)
         .str.replace(".", "", regex=False)
         .str.replace(",", ".", regex=False)
-        .astype(float)
     )
 
-    df["unidades"] = pd.to_numeric(df["unidades"], errors="coerce")
+    df["faturamento"] = pd.to_numeric(df["faturamento"], errors="coerce").fillna(0)
+
+    df["unidades"] = pd.to_numeric(df["unidades"], errors="coerce").fillna(0)
 
     return df
 
@@ -64,10 +66,10 @@ def load_data(file):
 def calcular_curva(df):
 
     resumo = (
-        df.groupby(["id", "anuncio"])
+        df.groupby(["id","anuncio"])
         .agg(
-            faturamento=("faturamento", "sum"),
-            unidades=("unidades", "sum")
+            faturamento=("faturamento","sum"),
+            unidades=("unidades","sum")
         )
         .reset_index()
     )
@@ -84,7 +86,7 @@ def calcular_curva(df):
         resumo["perc_acum"],
         bins=[0,0.8,0.95,1],
         labels=["A","B","C"]
-    )
+    ).astype(str)
 
     return resumo
 
@@ -104,24 +106,35 @@ def comparar(atual, anterior):
 
     ordem = {"A":1,"B":2,"C":3}
 
-    df["curva_anterior"] = df["curva_anterior"].astype(str).replace("nan","Novo")
+    df["curva_anterior"] = df["curva_anterior"].fillna("Novo").astype(str)
     df["curva_atual"] = df["curva_atual"].astype(str)
+
+    df["faturamento_anterior"] = df["faturamento_anterior"].fillna(0)
+    df["unidades_anterior"] = df["unidades_anterior"].fillna(0)
+    df["preco_medio_anterior"] = df["preco_medio_anterior"].fillna(0)
+
+    df["unidades_atual"] = df["unidades_atual"].fillna(0)
+
+    # evitar 94.000000
+    df["unidades_anterior"] = df["unidades_anterior"].astype(int)
+    df["unidades_atual"] = df["unidades_atual"].astype(int)
+
+    # =========================
+    # MOVIMENTO CURVA
+    # =========================
 
     def movimento(row):
 
-        curva_atual = row["curva_atual"]
-        curva_anterior = row["curva_anterior"]
-
-        if curva_anterior == "Novo":
+        if row["curva_anterior"] == "Novo":
             return "🆕 Novo"
 
-        valor_atual = ordem.get(curva_atual, 99)
-        valor_anterior = ordem.get(curva_anterior, 99)
+        atual = ordem.get(row["curva_atual"], 99)
+        anterior = ordem.get(row["curva_anterior"], 99)
 
-        if valor_atual < valor_anterior:
+        if atual < anterior:
             return "📈 Subiu"
 
-        if valor_atual > valor_anterior:
+        if atual > anterior:
             return "📉 Caiu"
 
         return "➡️ Igual"
@@ -142,8 +155,25 @@ def comparar(atual, anterior):
     df["var_unidades"] = df["unidades_atual"] - df["unidades_anterior"]
 
     df["var_preco"] = df["preco_medio_atual"] - df["preco_medio_anterior"]
-    df["unidades_atual"] = df["unidades_atual"].fillna(0).astype(int)
-    df["unidades_anterior"] = df["unidades_anterior"].fillna(0).astype(int)
+
+    # =========================
+    # ALERTA INTELIGENTE
+    # =========================
+
+    def alerta(row):
+
+        if row["movimento"] == "📉 Caiu" and row["var_preco"] > 0:
+            return "⚠️ Preço subiu e curva caiu"
+
+        if row["movimento"] == "📉 Caiu" and row["var_unidades"] < 0:
+            return "⚠️ Perdeu vendas"
+
+        if row["movimento"] == "📈 Subiu":
+            return "🚀 Produto ganhou relevância"
+
+        return ""
+
+    df["alerta"] = df.apply(alerta, axis=1)
 
     return df
 
@@ -185,25 +215,10 @@ if file_prev and file_current:
 
         c1,c2,c3,c4 = st.columns(4)
 
-        c1.metric(
-            "Faturamento Atual",
-            f"R$ {fat_atual:,.2f}"
-        )
-
-        c2.metric(
-            "Faturamento Anterior",
-            f"R$ {fat_anterior:,.2f}"
-        )
-
-        c3.metric(
-            "Crescimento",
-            f"{crescimento:.2f}%"
-        )
-
-        c4.metric(
-            "Anúncios ativos",
-            len(curva_current)
-        )
+        c1.metric("Faturamento Atual",f"R$ {fat_atual:,.2f}")
+        c2.metric("Faturamento Anterior",f"R$ {fat_anterior:,.2f}")
+        c3.metric("Crescimento",f"{crescimento:.2f}%")
+        c4.metric("Anúncios ativos",len(curva_current))
 
         st.divider()
 
@@ -224,8 +239,6 @@ if file_prev and file_current:
 
     with tab2:
 
-        st.subheader("Curva ABC Atual")
-
         filtro_curva = st.multiselect(
             "Filtrar curva",
             ["A","B","C"],
@@ -235,19 +248,23 @@ if file_prev and file_current:
         df_curva = curva_current[curva_current["curva"].isin(filtro_curva)]
 
         st.dataframe(
+
             df_curva
             .sort_values("faturamento", ascending=False)
             .style.format({
+
                 "faturamento":"R$ {:,.2f}",
                 "preco_medio":"R$ {:,.2f}",
                 "perc":"{:.2%}",
                 "perc_acum":"{:.2%}"
+
             }),
+
             use_container_width=True
         )
 
 # =========================
-# DIAGNÓSTICO INTELIGENTE
+# DIAGNÓSTICO
 # =========================
 
     with tab3:
@@ -280,6 +297,7 @@ if file_prev and file_current:
                     "curva_anterior",
                     "curva_atual",
                     "movimento",
+                    "alerta",
                     "faturamento_anterior",
                     "faturamento_atual",
                     "var_faturamento_perc",
