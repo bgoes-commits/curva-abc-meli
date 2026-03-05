@@ -24,9 +24,17 @@ file_current = st.sidebar.file_uploader("Mês atual", type=["xlsx"])
 
 def load_data(file):
 
-    df = pd.read_excel(file)
+    df = pd.read_excel(file, header=5)
 
     df.columns = df.columns.str.lower().str.strip()
+
+    df = df.rename(columns={
+        "anúncio":"anuncio",
+        "anuncio":"anuncio",
+        "quantidade de vendas":"vendas",
+        "unidades vendidas":"vendas",
+        "vendas brutas (brl)":"faturamento"
+    })
 
     return df
 
@@ -45,19 +53,21 @@ def detectar_colunas(df):
 
     for col in df.columns:
 
-        if "titulo" in col or "anuncio" in col or "publicacao" in col:
+        nome = col.lower()
+
+        if "anuncio" in nome:
             col_anuncio = col
 
-        if "vend" in col:
+        if "vend" in nome:
             col_vendas = col
 
-        if "faturamento" in col or "receita" in col:
+        if "faturamento" in nome or "brutas" in nome:
             col_faturamento = col
 
-        if "preco" in col or "preço" in col:
+        if "preco" in nome or "preço" in nome:
             col_preco = col
 
-        if "data" in col:
+        if "data" in nome:
             col_data = col
 
     return col_anuncio, col_vendas, col_faturamento, col_preco, col_data
@@ -71,11 +81,24 @@ def calcular_curva(df):
 
     anuncio, vendas, faturamento, preco, data = detectar_colunas(df)
 
-    resumo = df.groupby(anuncio).agg({
-        faturamento:"sum",
-        vendas:"sum",
-        preco:"mean"
-    }).reset_index()
+    if anuncio is None or faturamento is None:
+
+        st.error("Não foi possível identificar as colunas necessárias.")
+        st.write("Colunas encontradas:")
+        st.write(df.columns)
+        st.stop()
+
+    agg_dict = {
+        faturamento:"sum"
+    }
+
+    if vendas:
+        agg_dict[vendas] = "sum"
+
+    if preco:
+        agg_dict[preco] = "mean"
+
+    resumo = df.groupby(anuncio).agg(agg_dict).reset_index()
 
     resumo = resumo.sort_values(faturamento, ascending=False)
 
@@ -96,7 +119,11 @@ def calcular_curva(df):
 
     resumo["curva"] = resumo["perc_acum"].apply(curva)
 
-    resumo.columns = ["anuncio","faturamento","vendas","preco","perc","perc_acum","curva"]
+    resumo = resumo.rename(columns={
+        faturamento:"faturamento",
+        vendas:"vendas",
+        preco:"preco"
+    })
 
     return resumo
 
@@ -114,13 +141,21 @@ def comparar_curvas(atual, anterior):
         suffixes=("_atual","_anterior")
     )
 
-    merge["mudanca"] = merge["curva_anterior"] + " → " + merge["curva_atual"]
+    if "curva_anterior" in merge.columns:
 
-    merge["analise_preco"] = np.where(
-        merge["preco_atual"] < merge["preco_anterior"],
-        "Preço caiu",
-        "Preço subiu"
-    )
+        merge["mudanca"] = merge["curva_anterior"] + " → " + merge["curva_atual"]
+
+    else:
+
+        merge["mudanca"] = "Novo"
+
+    if "preco_atual" in merge.columns and "preco_anterior" in merge.columns:
+
+        merge["analise_preco"] = np.where(
+            merge["preco_atual"] < merge["preco_anterior"],
+            "Preço caiu",
+            "Preço subiu"
+        )
 
     return merge
 
@@ -147,7 +182,6 @@ if file_3m and file_prev and file_current:
             "Dashboard",
             "Curva ABC",
             "Mudanças de Curva",
-            "Performance Diária",
             "Pré-Acordo"
         ]
     )
@@ -160,8 +194,8 @@ if file_3m and file_prev and file_current:
 
         st.header("📊 Dashboard")
 
-        fat_atual = df_current.select_dtypes(include=np.number).sum().max()
-        fat_anterior = df_prev.select_dtypes(include=np.number).sum().max()
+        fat_atual = curva_current["faturamento"].sum()
+        fat_anterior = curva_prev["faturamento"].sum()
 
         crescimento = ((fat_atual - fat_anterior) / fat_anterior) * 100
 
@@ -205,32 +239,6 @@ if file_3m and file_prev and file_current:
         ]
 
         st.dataframe(mudancas)
-
-# -------------------------
-# PERFORMANCE DIARIA
-# -------------------------
-
-    if menu == "Performance Diária":
-
-        st.header("📅 Performance diária")
-
-        anuncio = st.selectbox(
-            "Escolha anúncio",
-            df_current.iloc[:,0].unique()
-        )
-
-        filtro = df_current[df_current.iloc[:,0] == anuncio]
-
-        fig = px.line(
-            filtro,
-            x=filtro.columns[1],
-            y=filtro.columns[2],
-            title="Vendas por dia"
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
-
-        st.dataframe(filtro)
 
 # -------------------------
 # PRE ACORDO
