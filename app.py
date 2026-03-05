@@ -142,6 +142,8 @@ def comparar(atual, anterior):
     df["var_unidades"] = df["unidades_atual"] - df["unidades_anterior"]
 
     df["var_preco"] = df["preco_medio_atual"] - df["preco_medio_anterior"]
+    df["unidades_atual"] = df["unidades_atual"].fillna(0).astype(int)
+    df["unidades_anterior"] = df["unidades_anterior"].fillna(0).astype(int)
 
     return df
 
