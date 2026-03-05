@@ -106,16 +106,13 @@ def comparar_curvas(atual, anterior):
         suffixes=("_atual","_anterior")
     )
 
-    merge["mudanca"] = merge["curva_anterior"].fillna("Novo") + " → " + merge["curva_atual"]
+    # garantir string para evitar erro de categoria
+    merge["curva_anterior"] = merge["curva_anterior"].astype(str)
+    merge["curva_atual"] = merge["curva_atual"].astype(str)
 
-    merge["status"] = merge.apply(
-        lambda x: "🔻 Caiu"
-        if x["curva_atual"] > x["curva_anterior"]
-        else "📈 Subiu"
-        if x["curva_atual"] < x["curva_anterior"]
-        else "➖ Igual",
-        axis=1
-    )
+    merge["curva_anterior"] = merge["curva_anterior"].replace("nan", "Novo")
+
+    merge["mudanca"] = merge["curva_anterior"] + " → " + merge["curva_atual"]
 
     return merge
 
