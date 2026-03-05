@@ -9,7 +9,6 @@ st.set_page_config(
 
 st.title("📊 Analisador Curva ABC - Mercado Livre")
 
-
 # =========================
 # Upload arquivos
 # =========================
@@ -20,9 +19,8 @@ file_3m = st.sidebar.file_uploader("Últimos 3 meses", type=["xlsx"])
 file_prev = st.sidebar.file_uploader("Mês anterior", type=["xlsx"])
 file_current = st.sidebar.file_uploader("Mês atual", type=["xlsx"])
 
-
 # =========================
-# CACHE (acelera MUITO)
+# CACHE
 # =========================
 
 @st.cache_data
@@ -76,7 +74,7 @@ def calcular_curva(df):
         .reset_index()
     )
 
-    resumo["preco_medio"] = resumo["faturamento"] / resumo["unidades"]
+    resumo["preco_medio"] = resumo["faturamento"] / resumo["unidades"].replace(0, 1)
 
     resumo = resumo.sort_values("faturamento", ascending=False)
 
@@ -103,16 +101,30 @@ def comparar_curvas(atual, anterior):
         anterior,
         on="id",
         how="left",
-        suffixes=("_atual","_anterior")
+        suffixes=("_atual", "_anterior")
     )
 
-    # garantir string para evitar erro de categoria
-    merge["curva_anterior"] = merge["curva_anterior"].astype(str)
+    merge["curva_anterior"] = merge["curva_anterior"].astype(str).replace("nan","Novo")
     merge["curva_atual"] = merge["curva_atual"].astype(str)
 
-    merge["curva_anterior"] = merge["curva_anterior"].replace("nan", "Novo")
-
     merge["mudanca"] = merge["curva_anterior"] + " → " + merge["curva_atual"]
+
+    def classificar(row):
+
+        if row["curva_anterior"] == "Novo":
+            return "🆕 Novo"
+
+        ordem = {"A":1,"B":2,"C":3}
+
+        if ordem.get(row["curva_atual"],3) < ordem.get(row["curva_anterior"],3):
+            return "📈 Subiu"
+
+        if ordem.get(row["curva_atual"],3) > ordem.get(row["curva_anterior"],3):
+            return "📉 Caiu"
+
+        return "➡️ Igual"
+
+    merge["movimento"] = merge.apply(classificar, axis=1)
 
     return merge
 
@@ -134,7 +146,7 @@ if file_3m and file_prev and file_current:
     comparacao = comparar_curvas(curva_current, curva_prev)
 
     # =========================
-    # ABAS PROFISSIONAIS
+    # ABAS
     # =========================
 
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -153,12 +165,12 @@ if file_3m and file_prev and file_current:
         fat_atual = curva_current["faturamento"].sum()
         fat_anterior = curva_prev["faturamento"].sum()
 
-        crescimento = ((fat_atual - fat_anterior) / fat_anterior) * 100
+        crescimento = ((fat_atual - fat_anterior) / fat_anterior) * 100 if fat_anterior != 0 else 0
 
         c1,c2,c3,c4 = st.columns(4)
 
-        c1.metric("Faturamento Atual", f"R$ {fat_atual:,.0f}")
-        c2.metric("Faturamento Anterior", f"R$ {fat_anterior:,.0f}")
+        c1.metric("Faturamento Atual", f"R$ {fat_atual:,.2f}")
+        c2.metric("Faturamento Anterior", f"R$ {fat_anterior:,.2f}")
         c3.metric("Crescimento", f"{crescimento:.2f}%")
         c4.metric("Anúncios ativos", len(curva_current))
 
@@ -203,7 +215,14 @@ if file_3m and file_prev and file_current:
         st.subheader("Curva ABC atual")
 
         st.dataframe(
-            curva_current.sort_values("faturamento", ascending=False),
+            curva_current
+            .sort_values("faturamento", ascending=False)
+            .style.format({
+                "faturamento":"R$ {:,.2f}",
+                "preco_medio":"R$ {:,.2f}",
+                "perc":"{:.2%}",
+                "perc_acum":"{:.2%}"
+            }),
             use_container_width=True
         )
 
@@ -228,9 +247,14 @@ if file_3m and file_prev and file_current:
                     "curva_anterior",
                     "curva_atual",
                     "mudanca",
-                    "status"
+                    "movimento",
+                    "faturamento_atual",
+                    "preco_medio_atual"
                 ]
-            ],
+            ].style.format({
+                "faturamento_atual":"R$ {:,.2f}",
+                "preco_medio_atual":"R$ {:,.2f}"
+            }),
             use_container_width=True
         )
 
@@ -247,7 +271,15 @@ if file_3m and file_prev and file_current:
 
         curvaA = curvaA.sort_values("faturamento", ascending=False)
 
-        st.dataframe(curvaA, use_container_width=True)
+        st.dataframe(
+            curvaA.style.format({
+                "faturamento":"R$ {:,.2f}",
+                "preco_medio":"R$ {:,.2f}",
+                "perc":"{:.2%}",
+                "perc_acum":"{:.2%}"
+            }),
+            use_container_width=True
+        )
 
         st.download_button(
             "Baixar lista de pré-acordo",
