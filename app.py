@@ -109,22 +109,34 @@ def comparar(atual, anterior):
 
     def movimento(row):
 
-        if row["curva_anterior"] == "Novo":
+        curva_atual = row["curva_atual"]
+        curva_anterior = row["curva_anterior"]
+
+        if curva_anterior == "Novo":
             return "🆕 Novo"
 
-        if ordem[row["curva_atual"]] < ordem[row["curva_anterior"]]:
+        valor_atual = ordem.get(curva_atual, 99)
+        valor_anterior = ordem.get(curva_anterior, 99)
+
+        if valor_atual < valor_anterior:
             return "📈 Subiu"
 
-        if ordem[row["curva_atual"]] > ordem[row["curva_anterior"]]:
+        if valor_atual > valor_anterior:
             return "📉 Caiu"
 
         return "➡️ Igual"
 
     df["movimento"] = df.apply(movimento, axis=1)
 
+    # =========================
+    # VARIAÇÕES
+    # =========================
+
     df["var_faturamento"] = df["faturamento_atual"] - df["faturamento_anterior"]
+
     df["var_faturamento_perc"] = (
-        df["var_faturamento"] / df["faturamento_anterior"]
+        df["var_faturamento"] /
+        df["faturamento_anterior"].replace(0,1)
     )
 
     df["var_unidades"] = df["unidades_atual"] - df["unidades_anterior"]
