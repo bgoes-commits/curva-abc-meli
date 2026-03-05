@@ -3,36 +3,83 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 
-st.set_page_config(page_title="Analisador Curva ABC Meli", layout="wide")
+st.set_page_config(page_title="Curva ABC Mercado Livre", layout="wide")
 
-st.title("📊 Analisador de Curva ABC - Mercado Livre")
+st.title("📊 Analisador Curva ABC - Mercado Livre")
 
-st.sidebar.title("Upload de Planilhas")
+# -------------------------
+# Upload arquivos
+# -------------------------
+
+st.sidebar.header("Upload das planilhas")
 
 file_3m = st.sidebar.file_uploader("Últimos 3 meses", type=["xlsx"])
 file_prev = st.sidebar.file_uploader("Mês anterior", type=["xlsx"])
 file_current = st.sidebar.file_uploader("Mês atual", type=["xlsx"])
 
 
+# -------------------------
+# Função carregar planilha
+# -------------------------
+
 def load_data(file):
+
     df = pd.read_excel(file)
 
-    df.columns = df.columns.str.lower()
+    df.columns = df.columns.str.lower().str.strip()
 
     return df
 
 
+# -------------------------
+# Detectar colunas automaticamente
+# -------------------------
+
+def detectar_colunas(df):
+
+    col_anuncio = None
+    col_vendas = None
+    col_faturamento = None
+    col_preco = None
+    col_data = None
+
+    for col in df.columns:
+
+        if "titulo" in col or "anuncio" in col or "publicacao" in col:
+            col_anuncio = col
+
+        if "vend" in col:
+            col_vendas = col
+
+        if "faturamento" in col or "receita" in col:
+            col_faturamento = col
+
+        if "preco" in col or "preço" in col:
+            col_preco = col
+
+        if "data" in col:
+            col_data = col
+
+    return col_anuncio, col_vendas, col_faturamento, col_preco, col_data
+
+
+# -------------------------
+# Curva ABC
+# -------------------------
+
 def calcular_curva(df):
 
-    resumo = df.groupby("anuncio").agg({
-        "faturamento":"sum",
-        "vendas":"sum",
-        "preco":"mean"
+    anuncio, vendas, faturamento, preco, data = detectar_colunas(df)
+
+    resumo = df.groupby(anuncio).agg({
+        faturamento:"sum",
+        vendas:"sum",
+        preco:"mean"
     }).reset_index()
 
-    resumo = resumo.sort_values("faturamento", ascending=False)
+    resumo = resumo.sort_values(faturamento, ascending=False)
 
-    resumo["perc"] = resumo["faturamento"] / resumo["faturamento"].sum()
+    resumo["perc"] = resumo[faturamento] / resumo[faturamento].sum()
 
     resumo["perc_acum"] = resumo["perc"].cumsum()
 
@@ -49,8 +96,14 @@ def calcular_curva(df):
 
     resumo["curva"] = resumo["perc_acum"].apply(curva)
 
+    resumo.columns = ["anuncio","faturamento","vendas","preco","perc","perc_acum","curva"]
+
     return resumo
 
+
+# -------------------------
+# Comparar curvas
+# -------------------------
 
 def comparar_curvas(atual, anterior):
 
@@ -71,6 +124,10 @@ def comparar_curvas(atual, anterior):
 
     return merge
 
+
+# -------------------------
+# Executar app
+# -------------------------
 
 if file_3m and file_prev and file_current:
 
@@ -101,10 +158,10 @@ if file_3m and file_prev and file_current:
 
     if menu == "Dashboard":
 
-        st.header("Dashboard Geral")
+        st.header("📊 Dashboard")
 
-        fat_atual = df_current["faturamento"].sum()
-        fat_anterior = df_prev["faturamento"].sum()
+        fat_atual = df_current.select_dtypes(include=np.number).sum().max()
+        fat_anterior = df_prev.select_dtypes(include=np.number).sum().max()
 
         crescimento = ((fat_atual - fat_anterior) / fat_anterior) * 100
 
@@ -120,7 +177,7 @@ if file_3m and file_prev and file_current:
             curva_valor,
             names="curva",
             values="faturamento",
-            title="Participação por Curva"
+            title="Participação Curva ABC"
         )
 
         st.plotly_chart(fig, use_container_width=True)
@@ -131,7 +188,7 @@ if file_3m and file_prev and file_current:
 
     if menu == "Curva ABC":
 
-        st.header("Curva ABC - Mês Atual")
+        st.header("📈 Curva ABC")
 
         st.dataframe(curva_current)
 
@@ -141,7 +198,7 @@ if file_3m and file_prev and file_current:
 
     if menu == "Mudanças de Curva":
 
-        st.header("Mudanças de Curva")
+        st.header("🔄 Mudanças de Curva")
 
         mudancas = comparacao[
             comparacao["curva_atual"] != comparacao["curva_anterior"]
@@ -155,19 +212,19 @@ if file_3m and file_prev and file_current:
 
     if menu == "Performance Diária":
 
-        st.header("Performance Diária")
+        st.header("📅 Performance diária")
 
         anuncio = st.selectbox(
-            "Selecione anúncio",
-            df_current["anuncio"].unique()
+            "Escolha anúncio",
+            df_current.iloc[:,0].unique()
         )
 
-        filtro = df_current[df_current["anuncio"] == anuncio]
+        filtro = df_current[df_current.iloc[:,0] == anuncio]
 
         fig = px.line(
             filtro,
-            x="data",
-            y="vendas",
+            x=filtro.columns[1],
+            y=filtro.columns[2],
             title="Vendas por dia"
         )
 
@@ -181,7 +238,7 @@ if file_3m and file_prev and file_current:
 
     if menu == "Pré-Acordo":
 
-        st.header("Itens que não podem faltar em promoção")
+        st.header("🔥 Itens que não podem faltar em promoção")
 
         curvaA = curva_current[curva_current["curva"]=="A"]
 
@@ -197,4 +254,4 @@ if file_3m and file_prev and file_current:
 
 else:
 
-    st.info("Faça upload das 3 planilhas para iniciar análise")
+    st.info("⬅️ Faça upload das 3 planilhas para iniciar análise")
