@@ -20,7 +20,7 @@ file_prev = st.sidebar.file_uploader("Mês anterior", type=["xlsx"])
 file_current = st.sidebar.file_uploader("Mês atual", type=["xlsx"])
 
 # =========================
-# CACHE
+# LOAD DATA
 # =========================
 
 @st.cache_data
@@ -44,7 +44,6 @@ def load_data(file):
         "faturamento"
     ]
 
-    # corrigir formato monetário brasileiro
     df["faturamento"] = (
         df["faturamento"]
         .astype(str)
@@ -59,7 +58,7 @@ def load_data(file):
 
 
 # =========================
-# Curva ABC
+# CURVA ABC
 # =========================
 
 @st.cache_data
@@ -74,7 +73,7 @@ def calcular_curva(df):
         .reset_index()
     )
 
-    resumo["preco_medio"] = resumo["faturamento"] / resumo["unidades"].replace(0, 1)
+    resumo["preco_medio"] = resumo["faturamento"] / resumo["unidades"].replace(0,1)
 
     resumo = resumo.sort_values("faturamento", ascending=False)
 
@@ -92,7 +91,7 @@ def calcular_curva(df):
 
 
 # =========================
-# Comparação de curvas
+# COMPARAÇÃO
 # =========================
 
 def comparar_curvas(atual, anterior):
@@ -101,7 +100,7 @@ def comparar_curvas(atual, anterior):
         anterior,
         on="id",
         how="left",
-        suffixes=("_atual", "_anterior")
+        suffixes=("_atual","_anterior")
     )
 
     merge["curva_anterior"] = merge["curva_anterior"].astype(str).replace("nan","Novo")
@@ -109,12 +108,12 @@ def comparar_curvas(atual, anterior):
 
     merge["mudanca"] = merge["curva_anterior"] + " → " + merge["curva_atual"]
 
+    ordem = {"A":1,"B":2,"C":3}
+
     def classificar(row):
 
         if row["curva_anterior"] == "Novo":
             return "🆕 Novo"
-
-        ordem = {"A":1,"B":2,"C":3}
 
         if ordem.get(row["curva_atual"],3) < ordem.get(row["curva_anterior"],3):
             return "📈 Subiu"
@@ -125,6 +124,34 @@ def comparar_curvas(atual, anterior):
         return "➡️ Igual"
 
     merge["movimento"] = merge.apply(classificar, axis=1)
+
+    # variações
+
+    merge["var_preco"] = merge["preco_medio_atual"] - merge["preco_medio_anterior"]
+    merge["var_unidades"] = merge["unidades_atual"] - merge["unidades_anterior"]
+
+    # motivo da queda
+
+    def motivo(row):
+
+        if row["movimento"] != "📉 Caiu":
+            return "-"
+
+        if row["var_unidades"] < 0 and row["var_preco"] >= 0:
+            return "Queda de demanda"
+
+        if row["var_preco"] > 0 and row["var_unidades"] < 0:
+            return "Preço aumentou"
+
+        if row["var_preco"] < 0 and row["var_unidades"] < 0:
+            return "Preço caiu e demanda caiu"
+
+        if row["var_unidades"] < 0:
+            return "Perda de volume"
+
+        return "Outros"
+
+    merge["motivo"] = merge.apply(motivo, axis=1)
 
     return merge
 
@@ -146,13 +173,48 @@ if file_3m and file_prev and file_current:
     comparacao = comparar_curvas(curva_current, curva_prev)
 
     # =========================
+    # FILTROS INTELIGENTES
+    # =========================
+
+    st.sidebar.header("Filtros Inteligentes")
+
+    curva_filtro = st.sidebar.multiselect(
+        "Curva",
+        ["A","B","C"],
+        default=["A","B","C"]
+    )
+
+    movimento_filtro = st.sidebar.multiselect(
+        "Movimento",
+        comparacao["movimento"].unique(),
+        default=comparacao["movimento"].unique()
+    )
+
+    motivo_filtro = st.sidebar.multiselect(
+        "Motivo",
+        comparacao["motivo"].unique(),
+        default=comparacao["motivo"].unique()
+    )
+
+    busca = st.sidebar.text_input("Buscar anúncio")
+
+    df_filtrado = comparacao.copy()
+
+    df_filtrado = df_filtrado[df_filtrado["curva_atual"].isin(curva_filtro)]
+    df_filtrado = df_filtrado[df_filtrado["movimento"].isin(movimento_filtro)]
+    df_filtrado = df_filtrado[df_filtrado["motivo"].isin(motivo_filtro)]
+
+    if busca:
+        df_filtrado = df_filtrado[df_filtrado["anuncio_atual"].str.contains(busca, case=False)]
+
+    # =========================
     # ABAS
     # =========================
 
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Dashboard",
         "📈 Curva ABC",
-        "🔄 Mudanças de Curva",
+        "🔄 Diagnóstico de Curva",
         "🔥 Pré-Acordo"
     ])
 
@@ -176,35 +238,16 @@ if file_3m and file_prev and file_current:
 
         st.divider()
 
-        col1,col2 = st.columns(2)
+        curva_valor = curva_current.groupby("curva")["faturamento"].sum().reset_index()
 
-        with col1:
+        fig = px.pie(
+            curva_valor,
+            names="curva",
+            values="faturamento",
+            title="Participação Curva ABC"
+        )
 
-            curva_valor = curva_current.groupby("curva")["faturamento"].sum().reset_index()
-
-            fig = px.pie(
-                curva_valor,
-                names="curva",
-                values="faturamento",
-                title="Participação Curva ABC"
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
-        with col2:
-
-            top10 = curva_current.head(10)
-
-            fig2 = px.bar(
-                top10,
-                x="faturamento",
-                y="anuncio",
-                orientation="h",
-                title="Top 10 anúncios"
-            )
-
-            st.plotly_chart(fig2, use_container_width=True)
-
+        st.plotly_chart(fig, use_container_width=True)
 
 # =========================
 # CURVA ABC
@@ -212,7 +255,7 @@ if file_3m and file_prev and file_current:
 
     with tab2:
 
-        st.subheader("Curva ABC atual")
+        st.subheader("Curva ABC Atual")
 
         st.dataframe(
             curva_current
@@ -228,44 +271,44 @@ if file_3m and file_prev and file_current:
 
 
 # =========================
-# MUDANÇAS
+# DIAGNÓSTICO
 # =========================
 
     with tab3:
 
-        st.subheader("Mudanças de curva")
-
-        mudancas = comparacao[
-            comparacao["curva_atual"] != comparacao["curva_anterior"]
-        ]
+        st.subheader("Diagnóstico Inteligente de Mudanças")
 
         st.dataframe(
-            mudancas[
+            df_filtrado[
                 [
                     "id",
                     "anuncio_atual",
                     "curva_anterior",
                     "curva_atual",
-                    "mudanca",
                     "movimento",
-                    "faturamento_atual",
-                    "preco_medio_atual"
+                    "motivo",
+                    "preco_medio_anterior",
+                    "preco_medio_atual",
+                    "unidades_anterior",
+                    "unidades_atual",
+                    "faturamento_atual"
                 ]
             ].style.format({
-                "faturamento_atual":"R$ {:,.2f}",
-                "preco_medio_atual":"R$ {:,.2f}"
+                "preco_medio_anterior":"R$ {:,.2f}",
+                "preco_medio_atual":"R$ {:,.2f}",
+                "faturamento_atual":"R$ {:,.2f}"
             }),
             use_container_width=True
         )
 
 
 # =========================
-# PRE ACORDO
+# PRÉ ACORDO
 # =========================
 
     with tab4:
 
-        st.subheader("Itens que não podem faltar em promoção")
+        st.subheader("Itens Curva A (Pré-acordo)")
 
         curvaA = curva_current[curva_current["curva"]=="A"]
 
@@ -274,15 +317,13 @@ if file_3m and file_prev and file_current:
         st.dataframe(
             curvaA.style.format({
                 "faturamento":"R$ {:,.2f}",
-                "preco_medio":"R$ {:,.2f}",
-                "perc":"{:.2%}",
-                "perc_acum":"{:.2%}"
+                "preco_medio":"R$ {:,.2f}"
             }),
             use_container_width=True
         )
 
         st.download_button(
-            "Baixar lista de pré-acordo",
+            "Baixar lista",
             curvaA.to_csv(index=False),
             "pre_acordo.csv"
         )
