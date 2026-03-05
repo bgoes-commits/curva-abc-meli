@@ -1,73 +1,83 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 
-st.set_page_config(page_title="Curva ABC Mercado Livre", layout="wide")
+st.set_page_config(
+    page_title="BI Mercado Livre",
+    layout="wide"
+)
 
-st.title("📊 Analisador Curva ABC - Mercado Livre")
+st.title("📊 BI Comercial - Mercado Livre")
 
+# ---------------------------------------
+# Upload
+# ---------------------------------------
 
-# -------------------------
-# Upload arquivos
-# -------------------------
+st.sidebar.header("Upload de Dados")
 
-st.sidebar.header("Upload das planilhas")
+file_prev = st.sidebar.file_uploader(
+    "Mês anterior",
+    type=["xlsx"]
+)
 
-file_3m = st.sidebar.file_uploader("Últimos 3 meses", type=["xlsx"])
-file_prev = st.sidebar.file_uploader("Mês anterior", type=["xlsx"])
-file_current = st.sidebar.file_uploader("Mês atual", type=["xlsx"])
+file_current = st.sidebar.file_uploader(
+    "Mês atual",
+    type=["xlsx"]
+)
 
-
-# -------------------------
-# Função carregar planilha
-# -------------------------
+# ---------------------------------------
+# Função leitura
+# ---------------------------------------
 
 def load_data(file):
 
-    df = pd.read_excel(file, header=5)
+    df = pd.read_excel(file)
 
     df = df[[
         "ID do anúncio",
         "Anúncio",
         "Unidades vendidas",
-        "Vendas brutas (BRL)"
+        "Vendas Brutas (BRL)"
     ]]
 
-    df.columns = [
-        "id",
-        "anuncio",
-        "unidades",
-        "faturamento"
-    ]
-
-    # corrigir formatação brasileira
-    df["faturamento"] = (
-        df["faturamento"]
+    df["Vendas Brutas (BRL)"] = (
+        df["Vendas Brutas (BRL)"]
         .astype(str)
         .str.replace(".", "", regex=False)
         .str.replace(",", ".", regex=False)
         .astype(float)
     )
 
-    df["unidades"] = pd.to_numeric(df["unidades"], errors="coerce")
-
     return df
 
-
-# -------------------------
+# ---------------------------------------
 # Curva ABC
-# -------------------------
+# ---------------------------------------
 
-def calcular_curva(df):
+def curva_abc(df):
 
-    resumo = df.groupby(["id","anuncio"]).agg({
-        "faturamento":"sum",
-        "unidades":"sum"
+    resumo = df.groupby(
+        ["ID do anúncio","Anúncio"]
+    ).agg({
+        "Unidades vendidas":"sum",
+        "Vendas Brutas (BRL)":"sum"
     }).reset_index()
 
-    resumo = resumo.sort_values("faturamento", ascending=False)
+    resumo["preco_medio"] = (
+        resumo["Vendas Brutas (BRL)"] /
+        resumo["Unidades vendidas"]
+    )
 
-    resumo["perc"] = resumo["faturamento"] / resumo["faturamento"].sum()
+    resumo = resumo.sort_values(
+        "Vendas Brutas (BRL)",
+        ascending=False
+    )
+
+    resumo["perc"] = (
+        resumo["Vendas Brutas (BRL)"] /
+        resumo["Vendas Brutas (BRL)"].sum()
+    )
 
     resumo["perc_acum"] = resumo["perc"].cumsum()
 
@@ -84,128 +94,194 @@ def calcular_curva(df):
 
     return resumo
 
+# ---------------------------------------
+# Comparação
+# ---------------------------------------
 
-# -------------------------
-# Comparar curvas
-# -------------------------
+def comparar(atual, anterior):
 
-def comparar_curvas(atual, anterior):
-
-    merge = atual.merge(
+    df = atual.merge(
         anterior,
-        on="id",
+        on="ID do anúncio",
         how="left",
         suffixes=("_atual","_anterior")
     )
 
-    merge["mudanca"] = merge["curva_anterior"].fillna("Novo") + " → " + merge["curva_atual"]
+    df["mudanca_curva"] = (
+        df["curva_anterior"] + " → " +
+        df["curva_atual"]
+    )
 
-    return merge
+    df["variacao_faturamento"] = (
+        (df["Vendas Brutas (BRL)_atual"] -
+        df["Vendas Brutas (BRL)_anterior"])
+        /
+        df["Vendas Brutas (BRL)_anterior"]
+    ) * 100
 
+    df["variacao_preco"] = (
+        (df["preco_medio_atual"] -
+        df["preco_medio_anterior"])
+        /
+        df["preco_medio_anterior"]
+    ) * 100
 
-# -------------------------
-# Executar app
-# -------------------------
+    return df
 
-if file_3m and file_prev and file_current:
+# ---------------------------------------
+# Execução
+# ---------------------------------------
 
-    df3 = load_data(file_3m)
+if file_prev and file_current:
+
     df_prev = load_data(file_prev)
     df_current = load_data(file_current)
 
-    curva_3m = calcular_curva(df3)
-    curva_prev = calcular_curva(df_prev)
-    curva_current = calcular_curva(df_current)
+    curva_prev = curva_abc(df_prev)
+    curva_current = curva_abc(df_current)
 
-    comparacao = comparar_curvas(curva_current, curva_prev)
+    comparacao = comparar(curva_current, curva_prev)
 
-    menu = st.sidebar.radio(
-        "Menu",
-        [
-            "Dashboard",
-            "Curva ABC",
-            "Mudanças de Curva",
-            "Pré-Acordo"
-        ]
-    )
+    # ---------------------------------------
+    # Abas
+    # ---------------------------------------
 
-# -------------------------
+    tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs([
+
+        "Dashboard",
+        "Curva ABC",
+        "Mudanças",
+        "Oportunidades",
+        "Pré-Acordo",
+        "Ranking"
+
+    ])
+
+# ---------------------------------------
 # DASHBOARD
-# -------------------------
+# ---------------------------------------
 
-    if menu == "Dashboard":
+    with tab1:
 
-        st.header("📊 Dashboard")
+        fat_atual = df_current["Vendas Brutas (BRL)"].sum()
+        fat_anterior = df_prev["Vendas Brutas (BRL)"].sum()
 
-        fat_atual = curva_current["faturamento"].sum()
-        fat_anterior = curva_prev["faturamento"].sum()
+        crescimento = (
+            (fat_atual-fat_anterior)/fat_anterior
+        )*100
 
-        crescimento = ((fat_atual - fat_anterior) / fat_anterior) * 100
+        unidades = df_current["Unidades vendidas"].sum()
 
-        c1,c2,c3 = st.columns(3)
+        ticket = fat_atual/unidades
 
-        c1.metric("Faturamento Atual", f"R$ {fat_atual:,.0f}")
-        c2.metric("Faturamento Anterior", f"R$ {fat_anterior:,.0f}")
-        c3.metric("Crescimento", f"{crescimento:.2f}%")
+        anuncios = df_current["ID do anúncio"].nunique()
 
-        curva_valor = curva_current.groupby("curva")["faturamento"].sum().reset_index()
+        c1,c2,c3,c4,c5 = st.columns(5)
+
+        c1.metric("Faturamento Atual",f"R$ {fat_atual:,.0f}")
+        c2.metric("Faturamento Anterior",f"R$ {fat_anterior:,.0f}")
+        c3.metric("Crescimento",f"{crescimento:.2f}%")
+        c4.metric("Unidades Vendidas",f"{unidades:,.0f}")
+        c5.metric("Anúncios Ativos",anuncios)
+
+        curva_valor = curva_current.groupby(
+            "curva"
+        )["Vendas Brutas (BRL)"].sum().reset_index()
 
         fig = px.pie(
             curva_valor,
             names="curva",
-            values="faturamento",
+            values="Vendas Brutas (BRL)",
             title="Participação Curva ABC"
         )
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig,use_container_width=True)
 
-
-# -------------------------
+# ---------------------------------------
 # CURVA ABC
-# -------------------------
+# ---------------------------------------
 
-    if menu == "Curva ABC":
+    with tab2:
 
-        st.header("📈 Curva ABC Atual")
+        st.subheader("Curva ABC")
 
-        st.dataframe(curva_current)
+        st.dataframe(
+            curva_current,
+            use_container_width=True
+        )
 
-
-# -------------------------
+# ---------------------------------------
 # MUDANÇAS
-# -------------------------
+# ---------------------------------------
 
-    if menu == "Mudanças de Curva":
+    with tab3:
 
-        st.header("🔄 Mudanças de Curva")
+        st.subheader("Mudanças de Curva")
 
         mudancas = comparacao[
-            comparacao["curva_atual"] != comparacao["curva_anterior"]
+            comparacao["curva_atual"]!=
+            comparacao["curva_anterior"]
         ]
 
         st.dataframe(mudancas)
 
+# ---------------------------------------
+# OPORTUNIDADES
+# ---------------------------------------
 
-# -------------------------
+    with tab4:
+
+        st.subheader("Radar de Oportunidades")
+
+        oportunidade = comparacao[
+            (comparacao["variacao_preco"] < 0) &
+            (comparacao["variacao_faturamento"] > 0)
+        ]
+
+        st.write("🚀 Produtos que podem subir preço")
+
+        st.dataframe(oportunidade)
+
+# ---------------------------------------
 # PRE ACORDO
-# -------------------------
+# ---------------------------------------
 
-    if menu == "Pré-Acordo":
+    with tab5:
 
-        st.header("🔥 Itens que não podem faltar em promoção")
+        st.subheader("Produtos para Pré-Acordo")
 
-        curvaA = curva_current[curva_current["curva"]=="A"]
+        curvaA = curva_current[
+            curva_current["curva"]=="A"
+        ]
 
-        curvaA = curvaA.sort_values("faturamento", ascending=False)
+        curvaA = curvaA.sort_values(
+            "Vendas Brutas (BRL)",
+            ascending=False
+        )
 
         st.dataframe(curvaA)
 
-        st.download_button(
-            "Baixar lista",
-            curvaA.to_csv(index=False),
-            "pre_acordo.csv"
+# ---------------------------------------
+# RANKING
+# ---------------------------------------
+
+    with tab6:
+
+        st.subheader("Top Faturamento")
+
+        top = curva_current.sort_values(
+            "Vendas Brutas (BRL)",
+            ascending=False
+        ).head(20)
+
+        fig = px.bar(
+            top,
+            x="Anúncio",
+            y="Vendas Brutas (BRL)"
         )
+
+        st.plotly_chart(fig,use_container_width=True)
 
 else:
 
-    st.info("⬅️ Faça upload das 3 planilhas para iniciar análise")
+    st.info("Faça upload das planilhas para iniciar análise")
